@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# wispx — run the wispx dictation daemon as a single-instance background
+# process.
+#
+# Usage:
+#   wispx              # start (no-op if already running)
+#   wispx start        # same as above
+#   wispx stop         # stop if running
+#   wispx status       # show state
+
+set -u
+
+WISPX_DIR="$HOME/repos/wispx"
+PYTHON="$WISPX_DIR/whisper_env/bin/python"
+SCRIPT="$WISPX_DIR/wispx.py"
+PIDFILE="$HOME/.wispx.pid"
+LOGFILE="$HOME/.wispx.log"
+# Bracket trick keeps pgrep from matching the shell running this script.
+PATTERN='[w]ispx/wispx.py'
+
+is_running() {
+  [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && return 0
+  pgrep -f "$PATTERN" >/dev/null 2>&1
+}
+
+start() {
+  if is_running; then
+    echo "wispx already running: $(pgrep -f "$PATTERN" | tr '\n' ' ')"
+    return 0
+  fi
+  nohup "$PYTHON" "$SCRIPT" >>"$LOGFILE" 2>&1 &
+  echo $! > "$PIDFILE"
+  echo "wispx started (pid $!)"
+}
+
+stop() {
+  local pids
+  pids="$(pgrep -f "$PATTERN" || true)"
+  if [ -z "$pids" ]; then
+    echo "wispx not running"
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null
+  rm -f "$PIDFILE"
+  echo "wispx stopped: $(echo "$pids" | tr '\n' ' ')"
+}
+
+status() {
+  if is_running; then
+    echo "running: $(pgrep -f "$PATTERN" | tr '\n' ' ')"
+  else
+    echo "not running"
+  fi
+}
+
+case "${1:-start}" in
+  start)  start ;;
+  stop)   stop ;;
+  status) status ;;
+  *) echo "usage: $0 {start|stop|status}" >&2; exit 1 ;;
+esac
