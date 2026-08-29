@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# wispx — run the wispx dictation daemon as a single-instance background
-# process.
+# wispx — run the wispx dictation service. Foreground by default;
+# --quiet starts it as a single-instance background daemon instead.
 #
 # Usage:
-#   wispx              # start (no-op if already running)
+#   wispx              # start (foreground; no-op if already running)
 #   wispx start        # same as above
+#   wispx --quiet      # start in the background (no-op if already running)
 #   wispx stop         # stop if running
 #   wispx status       # show state
 
@@ -15,19 +16,50 @@ PYTHON="$WISPX_DIR/whisper_env/bin/python"
 SCRIPT="$WISPX_DIR/wispx.py"
 PIDFILE="$HOME/.wispx.pid"
 LOGFILE="$HOME/.wispx.log"
-# Bracket trick keeps pgrep from matching the shell running this script.
-PATTERN='[w]ispx/wispx.py'
+# Match only the process this wrapper launches: the exact launch shape
+# "<interpreter> <script>" with the script path as the sole argument.
+# The venv python is a macOS Homebrew "launcher" that re-execs itself as
+# the real interpreter in the Python.app bundle, so the process table shows
+# the resolved binary name (Python), never the venv path — anchoring on the
+# venv path is impossible. The interpreter anchor keeps this from matching
+# an editor, shell, or other process whose command line merely mentions the
+# file path (e.g. "python3 -c ... wispx.py" or "vim .../wispx.py").
+SCRIPT_ESCAPED="${SCRIPT//./\\.}"
+PATTERN="Python ${SCRIPT_ESCAPED}\$"
+
+usage() {
+  echo "usage: wispx [--quiet] | {stop|status}" >&2
+  exit 1
+}
 
 is_running() {
   [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && return 0
   pgrep -f "$PATTERN" >/dev/null 2>&1
 }
 
-start() {
+# Shared single-instance guard: prints the running pids and returns 0 if an
+# instance is already up; returns 1 otherwise.
+guard_running() {
   if is_running; then
     echo "wispx already running: $(pgrep -f "$PATTERN" | tr '\n' ' ')"
     return 0
   fi
+  return 1
+}
+
+# Foreground start: print this shell's pid, then exec the python program so
+# the script process *becomes* it — the printed pid is the real one and
+# Ctrl-C stops it directly, freeing the terminal. The guard's pgrep side
+# detects this instance, so no pidfile is written here.
+start_foreground() {
+  guard_running && return 0
+  echo "wispx started (pid $$)"
+  exec "$PYTHON" "$SCRIPT"
+}
+
+# Background start: nohup, pidfile, log file; prints exactly one line.
+start_quiet() {
+  guard_running && return 0
   nohup "$PYTHON" "$SCRIPT" >>"$LOGFILE" 2>&1 &
   echo $! > "$PIDFILE"
   echo "wispx started (pid $!)"
@@ -54,9 +86,40 @@ status() {
   fi
 }
 
-case "${1:-start}" in
-  start)  start ;;
-  stop)   stop ;;
-  status) status ;;
-  *) echo "usage: $0 {start|stop|status}" >&2; exit 1 ;;
+# stop/status take no flags and end the script.
+case "${1:-}" in
+  stop)
+    [ $# -eq 1 ] || usage
+    stop
+    exit $?
+    ;;
+  status)
+    [ $# -eq 1 ] || usage
+    status
+    exit $?
+    ;;
 esac
+
+# Start path: tokens may only be {start, --quiet}, each at most once,
+# in any order (including neither).
+START_SEEN=0
+QUIET=0
+for arg in "$@"; do
+  case "$arg" in
+    start)
+      [ "$START_SEEN" -eq 0 ] || usage
+      START_SEEN=1
+      ;;
+    --quiet)
+      [ "$QUIET" -eq 0 ] || usage
+      QUIET=1
+      ;;
+    *) usage ;;
+  esac
+done
+
+if [ "$QUIET" -eq 1 ]; then
+  start_quiet
+else
+  start_foreground
+fi

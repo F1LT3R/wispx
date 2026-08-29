@@ -39,15 +39,16 @@ Then in any text field:
 2. Speak
 3. Release → transcribes (~1–2 s) and pastes with **⌘V**
 
-Quit with `Ctrl-C` (foreground), or manage it as a background daemon:
+`./wispx` runs in the foreground — full program output in this terminal, `Ctrl-C` quits. Add `--quiet` to start it as a background daemon instead:
 
 ```bash
-./wispx            # start (no-op if already running)
+./wispx            # start in the foreground (no-op if already running)
+./wispx --quiet    # start in the background (no-op if already running)
 ./wispx status     # is it running?
-./wispx stop       # stop it
+./wispx stop       # stop it (foreground or background)
 ```
 
-Background runs log to `~/.wispx.log` and keep a pidfile at `~/.wispx.pid`.
+Background (`--quiet`) runs log to `~/.wispx.log` and keep a pidfile at `~/.wispx.pid`.
 
 ### 📊 Model cheat-sheet (int8, CPU)
 
@@ -106,7 +107,7 @@ It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak d
 | File | Purpose |
 |---|---|
 | `wispx.py` | The dictation daemon: hotkey → record → transcribe → paste |
-| `wispx` | Shell script: start/stop/status as a single-instance background daemon |
+| `wispx` | Shell script: foreground start by default (`--quiet` for a single-instance background daemon); stop/status |
 | `mic_scan.py` | Input-device/channel level scanner |
 | `whisper_env/` | Python venv (not tracked) |
 
