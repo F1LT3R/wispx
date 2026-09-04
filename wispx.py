@@ -175,13 +175,10 @@ def frontmost_app():
 
 
 def print_block(text, style):
-    """Print text as a colored block padded 1 char on every side, with a
+    """Print text as a colored block padded 1 char left and right, with a
     blank line before and after."""
-    pad = " " * (len(text) + 2)
     print(flush=True)
-    print(f"{style}{pad}{RESET}", flush=True)
     print(f" {style} {text} {RESET}", flush=True)
-    print(f"{style}{pad}{RESET}", flush=True)
     print(flush=True)
 
 
@@ -222,7 +219,7 @@ def transcribe_and_output(audio_data):
     dur = len(audio) / 16000
     print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
           f"rms {rms:.4f}){RESET}", flush=True)
-    print_block(f"> ~“{text}” – Operator", SPOKEN_TEXT)
+    print_block(text, SPOKEN_TEXT)
 
     pyperclip.copy(text)
     if frontmost_app() in TERMINAL_APPS:
