@@ -41,7 +41,7 @@ YELLOW = "\033[33m"
 CYAN = "\033[36m"
 DARK_GREY = "\033[90m"           # bright black renders as dark grey
 SPOKEN_TEXT = "\033[45;1;37m"    # bright magenta bg, white bold text
-LISTENING = "\033[42;1;37m"      # green bg, white bold text
+LISTENING = "\033[42;1;30m"      # green bg, black bold text
 RESET = "\033[0m"
 
 print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
@@ -174,6 +174,17 @@ def frontmost_app():
         return ""
 
 
+def print_block(text, style):
+    """Print text as a colored block padded 1 char on every side, with a
+    blank line before and after."""
+    pad = " " * (len(text) + 2)
+    print(flush=True)
+    print(f"{style}{pad}{RESET}", flush=True)
+    print(f" {style} {text} {RESET}", flush=True)
+    print(f"{style}{pad}{RESET}", flush=True)
+    print(flush=True)
+
+
 def transcribe_and_output(audio_data):
     """Transcribe audio and paste at the cursor."""
     if not audio_data:
@@ -211,9 +222,7 @@ def transcribe_and_output(audio_data):
     dur = len(audio) / 16000
     print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
           f"rms {rms:.4f}){RESET}", flush=True)
-    print(flush=True)
-    print(f" {SPOKEN_TEXT} {text} {RESET}", flush=True)
-    print(flush=True)
+    print_block(f"> ~“{text}” – Operator", SPOKEN_TEXT)
 
     pyperclip.copy(text)
     if frontmost_app() in TERMINAL_APPS:
@@ -230,8 +239,8 @@ def transcribe_and_output(audio_data):
 
 
 def listen_for_hotkey():
-    print(f"{LISTENING}Listening for Ctrl+Option... "
-          f"(press and hold to record, release to stop){RESET}", flush=True)
+    print_block("Listening for Ctrl+Option... (press and hold to record, "
+                "release to stop)", LISTENING)
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener, \
          mouse.Listener(on_click=on_mouse_click) as mouse_listener:
         listener.join()
