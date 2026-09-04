@@ -1,6 +1,10 @@
 """wispx — local push-to-talk dictation.
 
 Hold Ctrl+Option, speak, release → text is pasted at the cursor (Cmd+V).
+If a terminal emulator is frontmost the paste is skipped — the text stays
+in the clipboard for a manual paste (so it isn't echoed at this prompt).
+Clicking on a terminal copies the last transcribed text to the clipboard
+(pbcopy).
 
 Uses faster-whisper (CTranslate2, int8) instead of openai-whisper:
   - no "FP16 is not supported on CPU" warnings
@@ -17,6 +21,7 @@ Clarett+ 8Pre mixed to mono):
     python3 mic_scan.py                   # list devices + per-channel levels
 """
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -25,16 +30,18 @@ import numpy as np
 import pyaudio
 import pyperclip
 from faster_whisper import WhisperModel
-from pynput import keyboard
+from pynput import keyboard, mouse
 
 MODEL_SIZE = sys.argv[1] if len(sys.argv) > 1 else "base"
 LANGUAGE = "en"
 
 # ANSI styles for terminal output
+RED = "\033[31m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
-DARK_GREY = "\033[90m"          # bright black renders as dark grey
-BLACK_BOLD_ON_MAGENTA = "\033[45;1;30m"  # bright magenta bg, black bold text
+DARK_GREY = "\033[90m"           # bright black renders as dark grey
+SPOKEN_TEXT = "\033[45;1;37m"    # bright magenta bg, white bold text
+LISTENING = "\033[42;1;37m"      # green bg, white bold text
 RESET = "\033[0m"
 
 print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
@@ -64,8 +71,8 @@ class AudioRecorder:
             raise SystemExit(
                 f"MIC_IN channels {self.chans} out of range for '{self.name}' "
                 f"({self.dev_channels} input channels)")
-        print(f"Mic: '{self.name}' input(s) {[c+1 for c in self.chans]} -> mono",
-              flush=True)
+        print(f"{RED}Mic: '{self.name}' input(s) {[c+1 for c in self.chans]} "
+              f"-> mono{RESET}", flush=True)
 
     def start_recording(self):
         self.is_recording = True
@@ -107,6 +114,7 @@ class AudioRecorder:
 
 recorder = AudioRecorder()
 keys_pressed = set()
+last_spoken_text = None
 
 
 def on_press(key):
@@ -131,6 +139,39 @@ def on_release(key):
                 transcribe_and_output(recorder.audio_data)
     except AttributeError:
         pass
+
+
+def on_mouse_click(x, y, button, pressed):
+    """Left-clicking a terminal copies the last transcribed text to the
+    clipboard via pbcopy."""
+    if not pressed or button != mouse.Button.left:
+        return
+    if not last_spoken_text or frontmost_app() not in TERMINAL_APPS:
+        return
+    subprocess.run(["pbcopy"], input=last_spoken_text.encode("utf-8"),
+                   check=False)
+
+
+# Terminal emulators: if one is frontmost, the auto-paste would just land
+# (and be echoed) at this shell's prompt — so it is skipped and the text
+# is left in the clipboard for a manual paste.
+TERMINAL_APPS = {
+    "terminal", "iterm2", "iterm", "alacritty", "kitty", "wezterm",
+    "hyper", "warp", "ghostty", "tabby", "rio", "wave-terminal",
+}
+
+
+def frontmost_app():
+    """Lower-cased name of the frontmost app ("" on any failure)."""
+    try:
+        out = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to get name of first '
+             'process whose frontmost is true'],
+            capture_output=True, text=True, timeout=2)
+        return out.stdout.strip().lower()
+    except Exception:
+        return ""
 
 
 def transcribe_and_output(audio_data):
@@ -163,13 +204,22 @@ def transcribe_and_output(audio_data):
         print("(no speech detected)", flush=True)
         return
 
+    global last_spoken_text
+    last_spoken_text = text
+
     dt = time.time() - t0
     dur = len(audio) / 16000
     print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
           f"rms {rms:.4f}){RESET}", flush=True)
-    print(f"{BLACK_BOLD_ON_MAGENTA}{text}{RESET}", flush=True)
+    print(flush=True)
+    print(f" {SPOKEN_TEXT} {text} {RESET}", flush=True)
+    print(flush=True)
 
     pyperclip.copy(text)
+    if frontmost_app() in TERMINAL_APPS:
+        print(f"{DARK_GREY}(terminal is frontmost — auto-paste skipped, "
+              f"text is in clipboard){RESET}", flush=True)
+        return
     time.sleep(0.2)
     from pynput.keyboard import Controller, Key
     kb = Controller()
@@ -180,8 +230,10 @@ def transcribe_and_output(audio_data):
 
 
 def listen_for_hotkey():
-    print("Listening for Ctrl+Option... (press and hold to record, release to stop)", flush=True)
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+    print(f"{LISTENING}Listening for Ctrl+Option... "
+          f"(press and hold to record, release to stop){RESET}", flush=True)
+    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener, \
+         mouse.Listener(on_click=on_mouse_click) as mouse_listener:
         listener.join()
 
 

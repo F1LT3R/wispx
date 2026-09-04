@@ -53,7 +53,7 @@ guard_running() {
 # detects this instance, so no pidfile is written here.
 start_foreground() {
   guard_running && return 0
-  echo "wispx started (pid $$)"
+  printf '\033[32m%s\033[0m\n' "wispx started (pid $$)"
   exec "$PYTHON" "$SCRIPT"
 }
 
@@ -62,7 +62,7 @@ start_quiet() {
   guard_running && return 0
   nohup "$PYTHON" "$SCRIPT" >>"$LOGFILE" 2>&1 &
   echo $! > "$PIDFILE"
-  echo "wispx started (pid $!)"
+  printf '\033[32m%s\033[0m\n' "wispx started (pid $!)"
 }
 
 stop() {
