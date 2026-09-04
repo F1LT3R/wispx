@@ -36,7 +36,7 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
 DARK_GREY = "\033[90m"           # bright black renders as dark grey
-SPOKEN_TEXT = "\033[40;1;95m"    # black bg, bright magenta bold text
+SPOKEN_TEXT = "\033[45;1;37m"    # dark magenta bg, white bold text
 LISTENING = "\033[42;1;30m"      # green bg, black bold text
 RESET = "\033[0m"
 
