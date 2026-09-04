@@ -1,9 +1,7 @@
 """wispx — local push-to-talk dictation.
 
 Hold Ctrl+Option, speak, release → the transcribed text is copied to
-the clipboard via pbcopy and pasted at the cursor (Cmd+V). If a terminal
-emulator is frontmost the paste is skipped — the text stays in the
-clipboard for a manual paste (so it isn't echoed at this prompt).
+the clipboard via pbcopy and pasted at the cursor (Cmd+V).
 
 Uses faster-whisper (CTranslate2, int8) instead of openai-whisper:
   - no "FP16 is not supported on CPU" warnings
@@ -138,28 +136,6 @@ def on_release(key):
         pass
 
 
-# Terminal emulators: if one is frontmost, the auto-paste would just land
-# (and be echoed) at this shell's prompt — so it is skipped and the text
-# is left in the clipboard for a manual paste.
-TERMINAL_APPS = {
-    "terminal", "iterm2", "iterm", "alacritty", "kitty", "wezterm",
-    "hyper", "warp", "ghostty", "tabby", "rio", "wave-terminal",
-}
-
-
-def frontmost_app():
-    """Lower-cased name of the frontmost app ("" on any failure)."""
-    try:
-        out = subprocess.run(
-            ["osascript", "-e",
-             'tell application "System Events" to get name of first '
-             'process whose frontmost is true'],
-            capture_output=True, text=True, timeout=2)
-        return out.stdout.strip().lower()
-    except Exception:
-        return ""
-
-
 def print_block(text, style):
     """Print text as a colored block padded 1 char left and right, with a
     blank line before and after. Multi-line text is formatted line by line."""
@@ -206,10 +182,6 @@ def transcribe_and_output(audio_data):
     print_block(text, SPOKEN_TEXT)
 
     subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=False)
-    if frontmost_app() in TERMINAL_APPS:
-        print(f"{DARK_GREY}(terminal is frontmost — auto-paste skipped, "
-              f"text is in clipboard){RESET}", flush=True)
-        return
     time.sleep(0.2)
     from pynput.keyboard import Controller, Key
     kb = Controller()
