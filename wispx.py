@@ -178,7 +178,7 @@ def print_block(text, style):
     """Print text as a colored block padded 1 char left and right, with a
     blank line before and after."""
     print(flush=True)
-    print(f" {style} {text} {RESET}", flush=True)
+    print(f"{style} {text} {RESET}", flush=True)
     print(flush=True)
 
 
