@@ -30,6 +30,13 @@ from pynput import keyboard
 MODEL_SIZE = sys.argv[1] if len(sys.argv) > 1 else "base"
 LANGUAGE = "en"
 
+# ANSI styles for terminal output
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+DARK_GREY = "\033[90m"          # bright black renders as dark grey
+BLACK_BOLD_ON_MAGENTA = "\033[45;1;30m"  # bright magenta bg, black bold text
+RESET = "\033[0m"
+
 print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 print("Model ready.", flush=True)
@@ -108,7 +115,7 @@ def on_press(key):
         if (keyboard.Key.ctrl_l in keys_pressed or keyboard.Key.ctrl_r in keys_pressed) and \
            (keyboard.Key.alt_l in keys_pressed or keyboard.Key.alt_r in keys_pressed):
             if not recorder.is_recording:
-                print("Recording started...", flush=True)
+                print(f"{YELLOW}Recording started...{RESET}", flush=True)
                 recorder.start_recording()
     except AttributeError:
         pass
@@ -118,7 +125,7 @@ def on_release(key):
     try:
         keys_pressed.discard(key)
         if recorder.is_recording:
-            print("Recording stopped, transcribing...", flush=True)
+            print(f"{CYAN}Recording stopped, transcribing...{RESET}", flush=True)
             recorder.stop_recording()
             if recorder.audio_data:
                 transcribe_and_output(recorder.audio_data)
@@ -158,7 +165,9 @@ def transcribe_and_output(audio_data):
 
     dt = time.time() - t0
     dur = len(audio) / 16000
-    print(f"Transcribed in {dt:.2f}s ({dur:.1f}s audio, rms {rms:.4f}): {text}", flush=True)
+    print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
+          f"rms {rms:.4f}){RESET}", flush=True)
+    print(f"{BLACK_BOLD_ON_MAGENTA}{text}{RESET}", flush=True)
 
     pyperclip.copy(text)
     time.sleep(0.2)
