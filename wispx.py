@@ -1,10 +1,9 @@
 """wispx — local push-to-talk dictation.
 
-Hold Ctrl+Option, speak, release → text is pasted at the cursor (Cmd+V).
-If a terminal emulator is frontmost the paste is skipped — the text stays
-in the clipboard for a manual paste (so it isn't echoed at this prompt).
-Clicking on a terminal copies the last transcribed text to the clipboard
-(pbcopy).
+Hold Ctrl+Option, speak, release → the transcribed text is copied to
+the clipboard via pbcopy and pasted at the cursor (Cmd+V). If a terminal
+emulator is frontmost the paste is skipped — the text stays in the
+clipboard for a manual paste (so it isn't echoed at this prompt).
 
 Uses faster-whisper (CTranslate2, int8) instead of openai-whisper:
   - no "FP16 is not supported on CPU" warnings
@@ -28,9 +27,8 @@ import time
 
 import numpy as np
 import pyaudio
-import pyperclip
 from faster_whisper import WhisperModel
-from pynput import keyboard, mouse
+from pynput import keyboard
 
 MODEL_SIZE = sys.argv[1] if len(sys.argv) > 1 else "base"
 LANGUAGE = "en"
@@ -114,7 +112,6 @@ class AudioRecorder:
 
 recorder = AudioRecorder()
 keys_pressed = set()
-last_spoken_text = None
 
 
 def on_press(key):
@@ -139,17 +136,6 @@ def on_release(key):
                 transcribe_and_output(recorder.audio_data)
     except AttributeError:
         pass
-
-
-def on_mouse_click(x, y, button, pressed):
-    """Left-clicking a terminal copies the last transcribed text to the
-    clipboard via pbcopy."""
-    if not pressed or button != mouse.Button.left:
-        return
-    if not last_spoken_text or frontmost_app() not in TERMINAL_APPS:
-        return
-    subprocess.run(["pbcopy"], input=last_spoken_text.encode("utf-8"),
-                   check=False)
 
 
 # Terminal emulators: if one is frontmost, the auto-paste would just land
@@ -213,16 +199,13 @@ def transcribe_and_output(audio_data):
         print("(no speech detected)", flush=True)
         return
 
-    global last_spoken_text
-    last_spoken_text = text
-
     dt = time.time() - t0
     dur = len(audio) / 16000
     print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
           f"rms {rms:.4f}){RESET}", flush=True)
     print_block(text, SPOKEN_TEXT)
 
-    pyperclip.copy(text)
+    subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=False)
     if frontmost_app() in TERMINAL_APPS:
         print(f"{DARK_GREY}(terminal is frontmost — auto-paste skipped, "
               f"text is in clipboard){RESET}", flush=True)
@@ -239,8 +222,7 @@ def transcribe_and_output(audio_data):
 def listen_for_hotkey():
     print_block("Listening for Ctrl+Option...\n"
                 "(press and hold to record, release to stop)", LISTENING)
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener, \
-         mouse.Listener(on_click=on_mouse_click) as mouse_listener:
+    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
 
 
