@@ -176,9 +176,10 @@ def frontmost_app():
 
 def print_block(text, style):
     """Print text as a colored block padded 1 char left and right, with a
-    blank line before and after."""
+    blank line before and after. Multi-line text is formatted line by line."""
     print(flush=True)
-    print(f"{style} {text} {RESET}", flush=True)
+    for line in text.split("\n"):
+        print(f"{style} {line} {RESET}", flush=True)
     print(flush=True)
 
 
@@ -236,8 +237,8 @@ def transcribe_and_output(audio_data):
 
 
 def listen_for_hotkey():
-    print_block("Listening for Ctrl+Option... (press and hold to record, "
-                "release to stop)", LISTENING)
+    print_block("Listening for Ctrl+Option...\n"
+                "(press and hold to record, release to stop)", LISTENING)
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener, \
          mouse.Listener(on_click=on_mouse_click) as mouse_listener:
         listener.join()
