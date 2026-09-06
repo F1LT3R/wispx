@@ -167,6 +167,10 @@ def transcribe_and_output(audio_data):
             vad_filter=True,    # trim silence before/after speech
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
+        # Whisper's decoder ends segments with a terminal period even when
+        # the utterance is incomplete — drop it so fragments don't land
+        # with one.
+        text = text.removesuffix(".").rstrip()
     except Exception as e:
         print(f"Transcription error: {e}", flush=True)
         return
