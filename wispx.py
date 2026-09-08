@@ -40,6 +40,10 @@ SPOKEN_TEXT = "\033[45;1;37m"    # dark magenta bg, white bold text
 LISTENING = "\033[42;1;30m"      # green bg, black bold text
 RESET = "\033[0m"
 
+MAX_RECORD_SECONDS = 60.0   # hard cap per take
+BAR_WIDTH = 10              # progress-bar cells
+BAR_INTERVAL = 0.1          # seconds between bar redraws
+
 print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 print("Model ready.", flush=True)
@@ -57,6 +61,10 @@ class AudioRecorder:
         self.is_recording = False
         self.audio_data = []
         self.stream = None
+        self._finish_lock = threading.Lock()
+        self.finished = False
+        self.record_start = 0.0
+        self._thread = None
         self.p = pyaudio.PyAudio()
         self.device, self.chans = mic_config()
         info = (self.p.get_device_info_by_index(self.device) if self.device is not None
@@ -73,11 +81,16 @@ class AudioRecorder:
     def start_recording(self):
         self.is_recording = True
         self.audio_data = []
+        self.finished = False
+        self.record_start = time.time()
         thread = threading.Thread(target=self._record)
         thread.daemon = True
+        self._thread = thread
         thread.start()
+        self._draw_bar(0.0)
 
     def _record(self):
+        timed_out = False
         try:
             # Open the device at its full channel count, then select the
             # mic channel(s) ourselves — PortAudio can't address channels.
@@ -89,12 +102,22 @@ class AudioRecorder:
                 input_device_index=self.device,
                 frames_per_buffer=1024,
             )
+            next_draw = time.time()
             while self.is_recording:
                 data = self.stream.read(1024, exception_on_overflow=False)
                 buf = np.frombuffer(data, dtype=np.int16).astype(np.float32)
                 buf = buf.reshape(-1, self.dev_channels)
                 chunk = buf[:, self.chans].mean(axis=1) / 32768.0
                 self.audio_data.append(chunk)
+                now = time.time()
+                elapsed = now - self.record_start
+                if elapsed >= MAX_RECORD_SECONDS:
+                    self.is_recording = False
+                    timed_out = True
+                    break
+                if now >= next_draw:
+                    self._draw_bar(elapsed)
+                    next_draw = now + BAR_INTERVAL
         except Exception as e:
             print(f"Recording error: {e}")
         finally:
@@ -102,10 +125,37 @@ class AudioRecorder:
                 self.stream.stop_stream()
                 self.stream.close()
                 self.stream = None
+        if timed_out:
+            self.finish_recording("timeout")
 
-    def stop_recording(self):
-        self.is_recording = False
-        time.sleep(0.2)
+    def _draw_bar(self, elapsed):
+        frac = min(elapsed / MAX_RECORD_SECONDS, 1.0)
+        filled = int(frac * BAR_WIDTH)
+        bar = "#" * filled + "-" * (BAR_WIDTH - filled)
+        print(f"\r{DARK_GREY}[{bar}] {elapsed:4.1f}s / {MAX_RECORD_SECONDS:.0f}s{RESET}",
+              end="", flush=True)
+
+    def finish_recording(self, reason):
+        """Idempotent take-finisher. reason: 'release' or 'timeout'.
+        Safe to call from the main thread and the record thread; the lock
+        guarantees the take is finished exactly once."""
+        with self._finish_lock:
+            if self.finished:
+                return
+            self.finished = True
+            self.is_recording = False
+        if self._thread and threading.current_thread() is not self._thread:
+            self._thread.join(timeout=2.0)   # winner on main thread waits for the reader
+        elapsed = min(time.time() - self.record_start, MAX_RECORD_SECONDS)
+        self._draw_bar(elapsed)              # finalize the bar in place
+        print()                              # terminate the bar line
+        if reason == "timeout":
+            print(f"{YELLOW}Max recording time ({MAX_RECORD_SECONDS:.0f}s) reached, "
+                  f"transcribing...{RESET}", flush=True)
+        else:
+            print(f"{CYAN}Recording stopped, transcribing...{RESET}", flush=True)
+        if self.audio_data:
+            transcribe_and_output(self.audio_data)
 
 
 recorder = AudioRecorder()
@@ -128,10 +178,7 @@ def on_release(key):
     try:
         keys_pressed.discard(key)
         if recorder.is_recording:
-            print(f"{CYAN}Recording stopped, transcribing...{RESET}", flush=True)
-            recorder.stop_recording()
-            if recorder.audio_data:
-                transcribe_and_output(recorder.audio_data)
+            recorder.finish_recording("release")
     except AttributeError:
         pass
 
@@ -197,7 +244,7 @@ def transcribe_and_output(audio_data):
 
 def listen_for_hotkey():
     print_block("Listening for Ctrl+Option...\n"
-                "(press and hold to record, release to stop)", LISTENING)
+                "(press and hold to record, release to stop — max 60s)", LISTENING)
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
 

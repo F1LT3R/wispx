@@ -37,7 +37,9 @@ Then in any text field:
 
 1. Hold **Ctrl + Option** (left or right modifiers both work)
 2. Speak
-3. Release → transcribes (~1–2 s) and pastes with **⌘V**
+3. Release — or keep holding: a progress bar fills in place and at the
+   **60 s** cap the take is finalized automatically → transcribes (~1–2 s)
+   and pastes with **⌘V**
 
 `./wispx` runs in the foreground — full program output in this terminal, `Ctrl-C` quits. Add `--quiet` to start it as a background daemon instead:
 
@@ -113,6 +115,6 @@ It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak d
 
 ## 🧠 Under the hood
 
-- **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently)
+- **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently); each take is capped at 60 s with an in-place progress bar, and the cap finalizes the take exactly like a release
 - **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; the trailing period Whisper appends even to incomplete sentences is stripped before paste
 - **Output** — clipboard + simulated ⌘V, ~0.2 s after copy so the target app has focus
