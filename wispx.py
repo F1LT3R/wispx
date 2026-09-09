@@ -20,6 +20,10 @@ Clarett+ 8Pre mixed to mono):
 Tech vocabulary (bias the decoder toward terms + fix known misses):
     WISPX_TERMS=/path/terms.txt WISPX_ALIASES=/path/aliases.txt python3 wispx.py
     (defaults: terms.txt / aliases.txt next to wispx.py)
+    The prompt uses the first PROMPT_MAX_TERMS of terms.txt (order =
+    priority) and is skipped on takes shorter than PROMPT_MIN_SECONDS
+    (~a lone word), where a prompt tends to blank or echo the list;
+    those takes rely on the aliases.txt post-pass.
 """
 import os
 import re
@@ -52,6 +56,15 @@ MAX_RECORD_SECONDS = 60.0   # hard cap per take
 BAR_WIDTH = 10              # progress-bar cells
 BAR_INTERVAL = 0.1          # seconds between bar redraws
 
+# Vocab-prompt tuning. A long initial_prompt destabilizes the decoder on
+# very short takes: it either emits nothing or "echoes" the prompt list
+# instead of the audio. So the prompt is (a) kept concise — at most the
+# first PROMPT_MAX_TERMS of terms.txt (file order = priority) — and
+# (b) skipped entirely on takes shorter than PROMPT_MIN_SECONDS (~a lone
+# spoken word), which lean on the aliases.txt post-pass instead.
+PROMPT_MAX_TERMS = 20
+PROMPT_MIN_SECONDS = 1.0
+
 # ---- pure helpers (no side effects; tested by tmp/test_terms.py) ----
 
 def load_lines(path):
@@ -64,21 +77,21 @@ def load_lines(path):
     return [ln for ln in lines if ln and not ln.startswith("#")]
 
 
-def build_terms_prompt(path):
-    """initial_prompt conditioning string from terms.txt, or None if empty.
+def build_terms_prompt(path, max_terms):
+    """Concise initial_prompt from the FIRST max_terms of terms.txt, or None.
 
-    faster-whisper caps initial_prompt at 448 tokens, so the file is
-    rendered as one compact sentence listing the terms — keep the file
-    short, and this warns when it's getting close to the cap.
+    Kept deliberately short: faster-whisper caps initial_prompt at 448
+    tokens, and long lists make the decoder unstable (it emits nothing or
+    repeats the list instead of the audio). File order = priority, so put
+    your most-used terms at the top; only the first max_terms are used.
     """
     terms = load_lines(path)
     if not terms:
         return None
-    if len(terms) > 200:
-        print(f"{YELLOW}Warning: {len(terms)} terms in {path}; the "
-              f"initial_prompt is capped at 448 tokens — trim the list.{RESET}",
-              flush=True)
-    return f"Dictation of terminal and tech terms: {', '.join(terms)}."
+    if len(terms) > max_terms:
+        print(f"{YELLOW}Note: {len(terms)} terms in {path}; the prompt uses "
+              f"the first {max_terms} (order = priority).{RESET}", flush=True)
+    return f"Dictation of terminal and tech terms: {', '.join(terms[:max_terms])}."
 
 
 def load_aliases(path):
@@ -113,17 +126,26 @@ def apply_aliases(text, patterns):
             applied.append((src, dst))
     return text, applied
 
+
+def should_use_prompt(dur, min_seconds):
+    """True when a take is long enough that the vocab prompt helps rather
+    than hurts. Takes shorter than min_seconds (~a lone word) skip it and
+    rely on the alias post-pass — a prompt on a short take tends to come
+    back empty or echo the list instead of the audio."""
+    return dur >= min_seconds
+
 # ---- end pure helpers ----
 
 print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 print("Model ready.", flush=True)
 
-TERMS_PROMPT = build_terms_prompt(TERMS_FILE)
+TERMS_PROMPT = build_terms_prompt(TERMS_FILE, PROMPT_MAX_TERMS)
 ALIAS_PATTERNS = load_aliases(ALIASES_FILE)
 n_terms = len(load_lines(TERMS_FILE))
-print(f"Vocabulary: {n_terms} terms ({TERMS_FILE}), "
-      f"{len(ALIAS_PATTERNS)} aliases ({ALIASES_FILE}).", flush=True)
+print(f"Vocabulary: {n_terms} terms in {TERMS_FILE} "
+      f"(prompt: first {min(n_terms, PROMPT_MAX_TERMS)}), "
+      f"{len(ALIAS_PATTERNS)} aliases in {ALIASES_FILE}.", flush=True)
 
 
 def mic_config():
@@ -283,13 +305,22 @@ def transcribe_and_output(audio_data):
         return
 
     t0 = time.time()
+    dur = len(audio) / 16000
+    # The vocab prompt is for phrases. On a short take (~a lone word) it is
+    # more likely to come back empty or echo the prompt list than to help,
+    # so short takes skip it and lean on the alias post-pass below.
+    use_prompt = TERMS_PROMPT is not None and \
+        should_use_prompt(dur, PROMPT_MIN_SECONDS)
+    if TERMS_PROMPT is not None and not use_prompt:
+        print(f"{DARK_GREY}short take ({dur:.1f}s < {PROMPT_MIN_SECONDS:.1f}s): "
+              f"vocab prompt off, alias pass still applies{RESET}", flush=True)
     try:
         segments, _info = model.transcribe(
             audio,
             language=LANGUAGE,
             beam_size=1,        # greedy = fastest
             vad_filter=True,    # trim silence before/after speech
-            initial_prompt=TERMS_PROMPT,  # bias toward tech vocabulary
+            initial_prompt=TERMS_PROMPT if use_prompt else None,
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         # Whisper's decoder ends segments with a terminal period even when
@@ -310,7 +341,6 @@ def transcribe_and_output(audio_data):
         return
 
     dt = time.time() - t0
-    dur = len(audio) / 16000
     print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
           f"rms {rms:.4f}){RESET}", flush=True)
     print_block(text, SPOKEN_TEXT)

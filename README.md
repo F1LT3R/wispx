@@ -100,7 +100,9 @@ It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak d
 
 Whisper hears *"el-ess"* and likes to guess prose — `Alice`, `Ellis`, `And last`… Two files fix this (defaults sit next to `wispx.py`; override with `WISPX_TERMS` / `WISPX_ALIASES`):
 
-**`terms.txt`** — one term per line. Rendered into a single compact `initial_prompt` sentence that biases the decoder toward your vocabulary. faster-whisper caps `initial_prompt` at **448 tokens**, so keep the list short (~80–100 words; wispx warns above 200). It's probabilistic — it makes the right word *more likely*, not guaranteed.
+**`terms.txt`** — one term per line, **file order = priority**. wispx feeds the *first 20* of them into a single compact `initial_prompt` sentence that biases the decoder toward your vocabulary (faster-whisper caps `initial_prompt` at 448 tokens; the 20-term cap keeps it concise — long lists make the decoder emit nothing or *echo the list* instead of your words, especially on short takes). It's probabilistic: it makes the right word *more likely*, not guaranteed.
+
+> **Why the 20-term cap and the short-take skip:** a long `initial_prompt` on a very short take (~a lone spoken word like *"el-ess"*) reliably breaks transcription — the decoder returns empty or spits out the prompt list (`Ls, cd, trr…`). So wispx (a) caps the prompt at the first `PROMPT_MAX_TERMS` (20) terms and (b) **skips the prompt entirely on takes shorter than `PROMPT_MIN_SECONDS` (1.0 s)**, leaning on `aliases.txt` for those. Both are constants at the top of `wispx.py` if you want to tune them.
 
 **`aliases.txt`** — `from -> to`, one per line. Applied to the transcript *after* whisper, case-insensitive on word boundaries — a deterministic net for whatever the prompt misses:
 
@@ -137,5 +139,5 @@ Each hit prints a note (`alias: Alice -> ls`) and the *replaced* text is what la
 ## 🧠 Under the hood
 
 - **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently); each take is capped at 60 s with an in-place progress bar, and the cap finalizes the take exactly like a release
-- **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; `initial_prompt` seeded from `terms.txt` biases the decoder toward tech vocabulary, then a word-boundary alias pass from `aliases.txt` rewrites known misses; the trailing period Whisper appends even to incomplete sentences is stripped before paste
+- **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; an `initial_prompt` seeded from the first 20 `terms.txt` words biases the decoder toward tech vocabulary — **skipped on takes under 1.0 s**, where a prompt tends to blank or echo the list — then a word-boundary alias pass from `aliases.txt` rewrites known misses; the trailing period Whisper appends even to incomplete sentences is stripped before paste
 - **Output** — clipboard + simulated ⌘V, ~0.2 s after copy so the target app has focus
