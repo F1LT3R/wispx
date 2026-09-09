@@ -1,0 +1,15 @@
+# wispx aliases — deterministic fixes for known mis-transcriptions.
+# Applied to the text AFTER whisper; case-insensitive, word-boundary match.
+# Format:  from -> to    (one per line, '#' starts a comment)
+#
+# Edits take effect on the next wispx restart.
+#
+# "ls" spoken "el-ess" — the variants actually heard:
+Alice -> ls
+Ellis -> ls
+L.S -> ls
+L S -> ls
+And last -> ls
+# 'What is' is also a real phrase — delete this line if it ever
+# clobbers genuine dictation:
+What is -> ls

@@ -1,0 +1,92 @@
+# wispx vocabulary — biases the whisper decoder toward these terms.
+# One term per line, '#' starts a comment.
+#
+# Keep this list SHORT: the initial_prompt it becomes is capped at 448
+# tokens (wispx warns above ~200 terms). Add words you actually speak.
+
+# shell basics
+ls
+cd
+pwd
+cat
+grep
+sed
+awk
+head
+tail
+echo
+find
+sort
+uniq
+wc
+xargs
+tr
+which
+man
+less
+tar
+zip
+gzip
+chmod
+chown
+touch
+mkdir
+rm
+mv
+cp
+kill
+ps
+df
+du
+top
+htop
+uptime
+date
+env
+export
+alias
+history
+
+# network / remote
+curl
+wget
+ssh
+scp
+ping
+nslookup
+ifconfig
+route
+mount
+tmux
+
+# languages / package tooling
+git
+brew
+npm
+pip
+python
+node
+go
+cargo
+rust
+swift
+clang
+gcc
+make
+cmake
+jq
+yq
+
+# sysadmin / macOS
+sudo
+service
+systemctl
+launchd
+launchctl
+launchagent
+launchdaemon
+diskutil
+softwareupdate
+docker
+kubectl
+terraform

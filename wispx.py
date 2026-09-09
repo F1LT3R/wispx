@@ -16,8 +16,13 @@ Clarett+ 8Pre mixed to mono):
     MIC_DEVICE=13 python3 wispx.py        # device index (omit = system default)
     MIC_IN=5,6 python3 wispx.py           # 1-based input channels to use
     python3 mic_scan.py                   # list devices + per-channel levels
+
+Tech vocabulary (bias the decoder toward terms + fix known misses):
+    WISPX_TERMS=/path/terms.txt WISPX_ALIASES=/path/aliases.txt python3 wispx.py
+    (defaults: terms.txt / aliases.txt next to wispx.py)
 """
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -30,6 +35,9 @@ from pynput import keyboard
 
 MODEL_SIZE = sys.argv[1] if len(sys.argv) > 1 else "base"
 LANGUAGE = "en"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TERMS_FILE = os.environ.get("WISPX_TERMS") or os.path.join(SCRIPT_DIR, "terms.txt")
+ALIASES_FILE = os.environ.get("WISPX_ALIASES") or os.path.join(SCRIPT_DIR, "aliases.txt")
 
 # ANSI styles for terminal output
 RED = "\033[31m"
@@ -44,9 +52,78 @@ MAX_RECORD_SECONDS = 60.0   # hard cap per take
 BAR_WIDTH = 10              # progress-bar cells
 BAR_INTERVAL = 0.1          # seconds between bar redraws
 
+# ---- pure helpers (no side effects; tested by tmp/test_terms.py) ----
+
+def load_lines(path):
+    """Stripped non-empty non-comment lines of a text file (missing -> [])."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f]
+    except FileNotFoundError:
+        return []
+    return [ln for ln in lines if ln and not ln.startswith("#")]
+
+
+def build_terms_prompt(path):
+    """initial_prompt conditioning string from terms.txt, or None if empty.
+
+    faster-whisper caps initial_prompt at 448 tokens, so the file is
+    rendered as one compact sentence listing the terms — keep the file
+    short, and this warns when it's getting close to the cap.
+    """
+    terms = load_lines(path)
+    if not terms:
+        return None
+    if len(terms) > 200:
+        print(f"{YELLOW}Warning: {len(terms)} terms in {path}; the "
+              f"initial_prompt is capped at 448 tokens — trim the list.{RESET}",
+              flush=True)
+    return f"Dictation of terminal and tech terms: {', '.join(terms)}."
+
+
+def load_aliases(path):
+    """Parse 'from -> to' lines into [(source, target, compiled_regex), ...].
+
+    Matching is case-insensitive on word boundaries, so 'Alice' hits
+    'alice'/'Alice.' but not 'allice'. Malformed lines are skipped with
+    a note (never fatal).
+    """
+    patterns = []
+    for line in load_lines(path):
+        if " -> " not in line:
+            print(f"{YELLOW}Skipping malformed alias line (want 'from -> to'): "
+                  f"{line!r}{RESET}", flush=True)
+            continue
+        src, dst = (part.strip() for part in line.split(" -> ", 1))
+        if not src or not dst:
+            print(f"{YELLOW}Skipping malformed alias line: {line!r}{RESET}",
+                  flush=True)
+            continue
+        rx = re.compile(r"\b" + re.escape(src) + r"\b", re.IGNORECASE)
+        patterns.append((src, dst, rx))
+    return patterns
+
+
+def apply_aliases(text, patterns):
+    """Apply alias patterns to text. Returns (new_text, [(source, target)])."""
+    applied = []
+    for src, dst, rx in patterns:
+        text, n = rx.subn(dst, text)
+        if n:
+            applied.append((src, dst))
+    return text, applied
+
+# ---- end pure helpers ----
+
 print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
 print("Model ready.", flush=True)
+
+TERMS_PROMPT = build_terms_prompt(TERMS_FILE)
+ALIAS_PATTERNS = load_aliases(ALIASES_FILE)
+n_terms = len(load_lines(TERMS_FILE))
+print(f"Vocabulary: {n_terms} terms ({TERMS_FILE}), "
+      f"{len(ALIAS_PATTERNS)} aliases ({ALIASES_FILE}).", flush=True)
 
 
 def mic_config():
@@ -212,12 +289,18 @@ def transcribe_and_output(audio_data):
             language=LANGUAGE,
             beam_size=1,        # greedy = fastest
             vad_filter=True,    # trim silence before/after speech
+            initial_prompt=TERMS_PROMPT,  # bias toward tech vocabulary
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         # Whisper's decoder ends segments with a terminal period even when
         # the utterance is incomplete — drop it so fragments don't land
         # with one.
         text = text.removesuffix(".").rstrip()
+        # Fix known mis-transcriptions (terms.txt makes them rarer,
+        # aliases.txt makes the survivors land correctly).
+        text, applied = apply_aliases(text, ALIAS_PATTERNS)
+        for src, dst in applied:
+            print(f"{DARK_GREY}alias: {src} -> {dst}{RESET}", flush=True)
     except Exception as e:
         print(f"Transcription error: {e}", flush=True)
         return

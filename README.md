@@ -76,6 +76,8 @@ Mic: 'Clarett+ 8Pre' input(s) [3, 4] -> mono
 |----------------|---------|-------------------------------------------|
 | `MIC_DEVICE`   | *(system default)* | Input device index (see `mic_scan.py`) |
 | `MIC_IN`       | `3,4`   | 1-based input channels, comma-separated, mixed to mono |
+| `WISPX_TERMS`  | `<repo>/terms.txt` | Vocabulary file fed to the decoder's `initial_prompt` |
+| `WISPX_ALIASES`| `<repo>/aliases.txt` | `from -> to` mis-transcription fixes (post-pass) |
 
 ```bash
 MIC_IN=5,6 python3 wispx.py                 # different inputs
@@ -94,6 +96,22 @@ python3 mic_scan.py --all      # every input device, 3 s each
 
 It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak during the capture; speech shows rms > 0.01. Use the reported 1-based channels as `MIC_IN`.
 
+## 📖 Tech vocabulary
+
+Whisper hears *"el-ess"* and likes to guess prose — `Alice`, `Ellis`, `And last`… Two files fix this (defaults sit next to `wispx.py`; override with `WISPX_TERMS` / `WISPX_ALIASES`):
+
+**`terms.txt`** — one term per line. Rendered into a single compact `initial_prompt` sentence that biases the decoder toward your vocabulary. faster-whisper caps `initial_prompt` at **448 tokens**, so keep the list short (~80–100 words; wispx warns above 200). It's probabilistic — it makes the right word *more likely*, not guaranteed.
+
+**`aliases.txt`** — `from -> to`, one per line. Applied to the transcript *after* whisper, case-insensitive on word boundaries — a deterministic net for whatever the prompt misses:
+
+```
+Alice -> ls
+Ellis -> ls
+L.S   -> ls
+```
+
+Each hit prints a note (`alias: Alice -> ls`) and the *replaced* text is what lands at your cursor. Restart wispx after editing either file. Caveat: aliases match anywhere in the text (`What is -> ls` will also rewrite "what is the weather"), so only add mappings you'd accept everywhere.
+
 ## 🚨 Troubleshooting
 
 | Symptom | Fix |
@@ -102,6 +120,7 @@ It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak d
 | `(silence, skipped — rms 0.0000…)` | You weren't on the recorded input. Run `mic_scan.py`, set `MIC_IN`. |
 | `(silence, skipped — rms 0.02…)` | You spoke but it was below threshold — unlikely; check input gain on your interface. |
 | Text transcribes but doesn't paste | **System Settings → Privacy & Security → Accessibility** — allow your terminal (pynput simulates ⌘V). |
+| A command name lands as `Alice` / `Ellis` / … | Add the spoken form to `terms.txt` (decoder bias) and the miss to `aliases.txt` (guaranteed fix). |
 | "FP16 is not supported on CPU" | You're running plain `openai-whisper`. wispx uses faster-whisper int8 — this warning shouldn't appear. |
 
 ## 🗂️ Files
@@ -109,6 +128,8 @@ It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak d
 | File | Purpose |
 |---|---|
 | `wispx.py` | The dictation daemon: hotkey → record → transcribe → paste |
+| `terms.txt` | Vocabulary list → `initial_prompt` decoder bias |
+| `aliases.txt` | `from -> to` mis-transcription fixes (post-transcription pass) |
 | `wispx` | Shell script: foreground start by default (`--quiet` for a single-instance background daemon); stop/status |
 | `mic_scan.py` | Input-device/channel level scanner |
 | `whisper_env/` | Python venv (not tracked) |
@@ -116,5 +137,5 @@ It waits for **ENTER**, then prints live per-channel levels every 0.5 s. Speak d
 ## 🧠 Under the hood
 
 - **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently); each take is capped at 60 s with an in-place progress bar, and the cap finalizes the take exactly like a release
-- **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; the trailing period Whisper appends even to incomplete sentences is stripped before paste
+- **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; `initial_prompt` seeded from `terms.txt` biases the decoder toward tech vocabulary, then a word-boundary alias pass from `aliases.txt` rewrites known misses; the trailing period Whisper appends even to incomplete sentences is stripped before paste
 - **Output** — clipboard + simulated ⌘V, ~0.2 s after copy so the target app has focus
