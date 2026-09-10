@@ -89,7 +89,7 @@ def build_terms_prompt(path, max_terms):
     if not terms:
         return None
     if len(terms) > max_terms:
-        print(f"{YELLOW}Note: {len(terms)} terms in {path}; the prompt uses "
+        print(f"{YELLOW}📝 Note: {len(terms)} terms in {path}; the prompt uses "
               f"the first {max_terms} (order = priority).{RESET}", flush=True)
     return f"Dictation of terminal and tech terms: {', '.join(terms[:max_terms])}."
 
@@ -104,12 +104,12 @@ def load_aliases(path):
     patterns = []
     for line in load_lines(path):
         if " -> " not in line:
-            print(f"{YELLOW}Skipping malformed alias line (want 'from -> to'): "
+            print(f"{YELLOW}⚠️ Skipping malformed alias line (want 'from -> to'): "
                   f"{line!r}{RESET}", flush=True)
             continue
         src, dst = (part.strip() for part in line.split(" -> ", 1))
         if not src or not dst:
-            print(f"{YELLOW}Skipping malformed alias line: {line!r}{RESET}",
+            print(f"{YELLOW}⚠️ Skipping malformed alias line: {line!r}{RESET}",
                   flush=True)
             continue
         rx = re.compile(r"\b" + re.escape(src) + r"\b", re.IGNORECASE)
@@ -136,14 +136,14 @@ def should_use_prompt(dur, min_seconds):
 
 # ---- end pure helpers ----
 
-print(f"Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
+print(f"⏳ Loading faster-whisper model '{MODEL_SIZE}' (int8, cpu)...", flush=True)
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-print("Model ready.", flush=True)
+print("✅ Model ready.", flush=True)
 
 TERMS_PROMPT = build_terms_prompt(TERMS_FILE, PROMPT_MAX_TERMS)
 ALIAS_PATTERNS = load_aliases(ALIASES_FILE)
 n_terms = len(load_lines(TERMS_FILE))
-print(f"Vocabulary: {n_terms} terms in {TERMS_FILE} "
+print(f"📚 Vocabulary: {n_terms} terms in {TERMS_FILE} "
       f"(prompt: first {min(n_terms, PROMPT_MAX_TERMS)}), "
       f"{len(ALIAS_PATTERNS)} aliases in {ALIASES_FILE}.", flush=True)
 
@@ -174,7 +174,7 @@ class AudioRecorder:
             raise SystemExit(
                 f"MIC_IN channels {self.chans} out of range for '{self.name}' "
                 f"({self.dev_channels} input channels)")
-        print(f"{RED}Mic: '{self.name}' input(s) {[c+1 for c in self.chans]} "
+        print(f"{RED}🎙️ Mic: '{self.name}' input(s) {[c+1 for c in self.chans]} "
               f"-> mono{RESET}", flush=True)
 
     def start_recording(self):
@@ -218,7 +218,7 @@ class AudioRecorder:
                     self._draw_bar(elapsed)
                     next_draw = now + BAR_INTERVAL
         except Exception as e:
-            print(f"Recording error: {e}")
+            print(f"❌ {RED}Recording error: {e}{RESET}", flush=True)
         finally:
             if self.stream:
                 self.stream.stop_stream()
@@ -249,12 +249,18 @@ class AudioRecorder:
         self._draw_bar(elapsed)              # finalize the bar in place
         print()                              # terminate the bar line
         if reason == "timeout":
-            print(f"{YELLOW}Max recording time ({MAX_RECORD_SECONDS:.0f}s) reached, "
+            print(f"⏰ {YELLOW}Max recording time ({MAX_RECORD_SECONDS:.0f}s) reached, "
                   f"transcribing...{RESET}", flush=True)
         else:
-            print(f"{CYAN}Recording stopped, transcribing...{RESET}", flush=True)
+            print(f"⏹️ {CYAN}Recording stopped, transcribing...{RESET}", flush=True)
         if self.audio_data:
             transcribe_and_output(self.audio_data)
+        else:
+            # A very brief tap can be released before the record thread has
+            # finished opening the mic, so no buffer was ever read.
+            print(f"{YELLOW}⚠️ No audio captured — the take was too short to "
+                  f"record anything. Hold the hotkey a little longer.{RESET}",
+                  flush=True)
 
 
 recorder = AudioRecorder()
@@ -267,7 +273,7 @@ def on_press(key):
         if (keyboard.Key.ctrl_l in keys_pressed or keyboard.Key.ctrl_r in keys_pressed) and \
            (keyboard.Key.alt_l in keys_pressed or keyboard.Key.alt_r in keys_pressed):
             if not recorder.is_recording:
-                print(f"{YELLOW}Recording started...{RESET}", flush=True)
+                print(f"🔴 {YELLOW}Recording started...{RESET}", flush=True)
                 recorder.start_recording()
     except AttributeError:
         pass
@@ -300,8 +306,9 @@ def transcribe_and_output(audio_data):
     # Skip near-silence so we don't paste garbage on an accidental tap.
     rms = float(np.sqrt((audio**2).mean()))
     if rms < 0.003:
-        print(f"(silence, skipped — rms {rms:.4f}. If you were speaking, "
-              f"check MIC_IN / run mic_scan.py)", flush=True)
+        print(f"🤫 Silence — nothing to transcribe "
+              f"({DARK_GREY}rms {rms:.4f}{RESET}). If you were speaking, "
+              f"check MIC_IN or run mic_scan.py.", flush=True)
         return
 
     t0 = time.time()
@@ -312,7 +319,7 @@ def transcribe_and_output(audio_data):
     use_prompt = TERMS_PROMPT is not None and \
         should_use_prompt(dur, PROMPT_MIN_SECONDS)
     if TERMS_PROMPT is not None and not use_prompt:
-        print(f"{DARK_GREY}short take ({dur:.1f}s < {PROMPT_MIN_SECONDS:.1f}s): "
+        print(f"✂️ {DARK_GREY}short take ({dur:.1f}s < {PROMPT_MIN_SECONDS:.1f}s): "
               f"vocab prompt off, alias pass still applies{RESET}", flush=True)
     try:
         segments, _info = model.transcribe(
@@ -331,17 +338,17 @@ def transcribe_and_output(audio_data):
         # aliases.txt makes the survivors land correctly).
         text, applied = apply_aliases(text, ALIAS_PATTERNS)
         for src, dst in applied:
-            print(f"{DARK_GREY}alias: {src} -> {dst}{RESET}", flush=True)
+            print(f"🪄 {DARK_GREY}alias: {src} → {dst}{RESET}", flush=True)
     except Exception as e:
-        print(f"Transcription error: {e}", flush=True)
+        print(f"❌ {RED}Transcription error: {e}{RESET}", flush=True)
         return
 
     if not text:
-        print("(no speech detected)", flush=True)
+        print("🤐 No speech detected", flush=True)
         return
 
     dt = time.time() - t0
-    print(f"{DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
+    print(f"⚡ {DARK_GREY}Transcribed in {dt:.2f}s ({dur:.1f}s audio, "
           f"rms {rms:.4f}){RESET}", flush=True)
     print_block(text, SPOKEN_TEXT)
 
@@ -356,7 +363,7 @@ def transcribe_and_output(audio_data):
 
 
 def listen_for_hotkey():
-    print_block("Listening for Ctrl+Option...\n"
+    print_block("👂 Listening for Ctrl+Option...\n"
                 "(press and hold to record, release to stop — max 60s)", LISTENING)
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()

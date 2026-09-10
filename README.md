@@ -41,7 +41,7 @@ Then in any text field:
    **60 s** cap the take is finalized automatically → transcribes (~1–2 s)
    and pastes with **⌘V**
 
-`./wispx` runs in the foreground — full program output in this terminal, `Ctrl-C` quits. Add `--quiet` to start it as a background daemon instead:
+`./wispx` runs in the foreground — full program output in this terminal, `Ctrl-C` quits. Add `--quiet` to start it as a background service instead:
 
 ```bash
 ./wispx            # start in the foreground (no-op if already running)
@@ -67,7 +67,7 @@ Defaults: the **system default input device**, inputs **3 and 4** (1-based) mixe
 The startup line tells you what it's using:
 
 ```
-Mic: 'Clarett+ 8Pre' input(s) [3, 4] -> mono
+🎙️ Mic: 'Clarett+ 8Pre' input(s) [3, 4] -> mono
 ```
 
 ### ⚙️ Environment variables
@@ -112,15 +112,16 @@ Ellis -> ls
 L.S   -> ls
 ```
 
-Each hit prints a note (`alias: Alice -> ls`) and the *replaced* text is what lands at your cursor. Restart wispx after editing either file. Caveat: aliases match anywhere in the text (`What is -> ls` will also rewrite "what is the weather"), so only add mappings you'd accept everywhere.
+Each hit prints a note (`🪄 alias: Alice → ls`) and the *replaced* text is what lands at your cursor. Restart wispx after editing either file. Caveat: aliases match anywhere in the text (`What is -> ls` will also rewrite "what is the weather"), so only add mappings you'd accept everywhere.
 
 ## 🚨 Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | **All channels read `0.0000`** in `mic_scan.py` | macOS mic privacy. **System Settings → Privacy & Security → Microphone** — allow your terminal (and Python). This silently returns pure zero, not a low noise floor. |
-| `(silence, skipped — rms 0.0000…)` | You weren't on the recorded input. Run `mic_scan.py`, set `MIC_IN`. |
-| `(silence, skipped — rms 0.02…)` | You spoke but it was below threshold — unlikely; check input gain on your interface. |
+| `🤫 Silence — nothing to transcribe` (rms 0.0000…) | You weren't on the recorded input. Run `mic_scan.py`, set `MIC_IN`. |
+| `🤫 Silence — nothing to transcribe` (rms 0.02…) | You spoke but it was below threshold — unlikely; check input gain on your interface. |
+| `⚠️ No audio captured` | Your tap was too brief — the mic takes a few hundred ms to open. Hold the hotkey a little longer. |
 | Text transcribes but doesn't paste | **System Settings → Privacy & Security → Accessibility** — allow your terminal (pynput simulates ⌘V). |
 | A command name lands as `Alice` / `Ellis` / … | Add the spoken form to `terms.txt` (decoder bias) and the miss to `aliases.txt` (guaranteed fix). |
 | "FP16 is not supported on CPU" | You're running plain `openai-whisper`. wispx uses faster-whisper int8 — this warning shouldn't appear. |
@@ -129,15 +130,15 @@ Each hit prints a note (`alias: Alice -> ls`) and the *replaced* text is what la
 
 | File | Purpose |
 |---|---|
-| `wispx.py` | The dictation daemon: hotkey → record → transcribe → paste |
+| `wispx.py` | The dictation service: hotkey → record → transcribe → paste |
 | `terms.txt` | Vocabulary list → `initial_prompt` decoder bias |
 | `aliases.txt` | `from -> to` mis-transcription fixes (post-transcription pass) |
-| `wispx` | Shell script: foreground start by default (`--quiet` for a single-instance background daemon); stop/status |
+| `wispx` | Shell script: foreground start by default (`--quiet` for a single-instance background service); stop/status |
 | `mic_scan.py` | Input-device/channel level scanner |
 | `whisper_env/` | Python venv (not tracked) |
 
 ## 🧠 Under the hood
 
-- **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently); each take is capped at 60 s with an in-place progress bar, and the cap finalizes the take exactly like a release
+- **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently); each take is capped at 60 s with an in-place progress bar, and the cap finalizes the take exactly like a release; a very brief tap that captures no audio (the mic takes a few hundred ms to open) and a near-silent take (rms < 0.003) are skipped with a note instead of transcribed
 - **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; an `initial_prompt` seeded from the first 20 `terms.txt` words biases the decoder toward tech vocabulary — **skipped on takes under 1.0 s**, where a prompt tends to blank or echo the list — then a word-boundary alias pass from `aliases.txt` rewrites known misses; the trailing period Whisper appends even to incomplete sentences is stripped before paste
 - **Output** — clipboard + simulated ⌘V, ~0.2 s after copy so the target app has focus
