@@ -3,7 +3,12 @@ __pycache__/
 *.pyc
 .pi/
 prompts/
+.prompts/
 tmp/
+.tmp/
 backup/
+.backup/
+backups/
+.backups/
 cache/
 store/
