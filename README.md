@@ -35,7 +35,7 @@ On first run the model downloads from Hugging Face (`base` ≈ 145 MB) and cache
 
 Then in any text field:
 
-1. Hold **Ctrl + Option** (left or right modifiers both work)
+1. Hold **Ctrl + Option** — the **left** modifiers only; right Ctrl/Option are ignored
 2. Speak
 3. Release — or keep holding: a progress bar fills in place and at the
    **60 s** cap the take is finalized automatically → transcribes (~1–2 s)

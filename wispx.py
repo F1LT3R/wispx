@@ -270,8 +270,7 @@ keys_pressed = set()
 def on_press(key):
     try:
         keys_pressed.add(key)
-        if (keyboard.Key.ctrl_l in keys_pressed or keyboard.Key.ctrl_r in keys_pressed) and \
-           (keyboard.Key.alt_l in keys_pressed or keyboard.Key.alt_r in keys_pressed):
+        if keyboard.Key.ctrl_l in keys_pressed and keyboard.Key.alt_l in keys_pressed:
             if not recorder.is_recording:
                 print(f"🔴 {YELLOW}Recording started...{RESET}", flush=True)
                 recorder.start_recording()
@@ -363,7 +362,7 @@ def transcribe_and_output(audio_data):
 
 
 def listen_for_hotkey():
-    print_block("👂 Listening for Ctrl+Option...\n"
+    print_block("👂 Listening for Ctrl+Option (left modifiers only)...\n"
                 "(press and hold to record, release to stop — max 60s)", LISTENING)
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
