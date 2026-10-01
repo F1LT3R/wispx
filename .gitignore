@@ -12,3 +12,4 @@ backups/
 .backups/
 cache/
 store/
+.worktrees/
