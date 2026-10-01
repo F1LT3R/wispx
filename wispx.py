@@ -1,7 +1,9 @@
 """wispx — local push-to-talk dictation.
 
-Hold Ctrl+Option, speak, release → the transcribed text is copied to
-the clipboard via pbcopy and pasted at the cursor (Cmd+V).
+Hold Ctrl+Option (left modifiers, and exactly those two keys — a 3- or
+4-key chord containing them does not trigger), speak, release → the
+transcribed text is copied to the clipboard via pbcopy and pasted at
+the cursor (Cmd+V).
 
 Uses faster-whisper (CTranslate2, int8) instead of openai-whisper:
   - no "FP16 is not supported on CPU" warnings
@@ -265,15 +267,66 @@ class AudioRecorder:
 
 recorder = AudioRecorder()
 keys_pressed = set()
+_pending_trigger = None   # armed trigger: Timer awaiting the grace window
+
+# The hotkey is EXACTLY two keys: left Ctrl + left Option. When those
+# modifiers are part of a bigger chord (a 3- or 4-key combo), wispx must
+# not fire. At the instant the second modifier goes down we cannot yet
+# know whether more keys are on their way, so the trigger is deferred by
+# TRIGGER_GRACE: if any other key is down (or goes down) inside that
+# window, the hold is a bigger combo and wispx stands down. Real chords
+# land their extra keys within a few tens of ms of each other; a
+# deliberate two-key hold has no third key at all.
+TRIGGER_GRACE = 0.2   # seconds after both modifiers are down
+
+
+def _is_hotkey_only():
+    """True when the pressed keys are exactly the two hotkey modifiers —
+    those keys and those keys only."""
+    return keys_pressed == {keyboard.Key.ctrl_l, keyboard.Key.alt_l}
+
+
+def _arm_trigger():
+    """Defer the trigger by TRIGGER_GRACE. It fires only if the hold is
+    still exactly the two hotkey keys when the window closes."""
+    global _pending_trigger
+    _pending_trigger = threading.Timer(TRIGGER_GRACE, _fire_trigger)
+    _pending_trigger.daemon = True
+    _pending_trigger.start()
+
+
+def _cancel_trigger():
+    """Drop an armed trigger (a modifier or an extra key changed)."""
+    global _pending_trigger
+    if _pending_trigger is not None:
+        _pending_trigger.cancel()
+        _pending_trigger = None
+
+
+def _fire_trigger():
+    """Grace window closed: start the take only for a pure two-key hold."""
+    global _pending_trigger
+    _pending_trigger = None
+    if recorder.is_recording or not _is_hotkey_only():
+        return
+    print(f"🔴 {YELLOW}Recording started...{RESET}", flush=True)
+    recorder.start_recording()
 
 
 def on_press(key):
     try:
         keys_pressed.add(key)
-        if keyboard.Key.ctrl_l in keys_pressed and keyboard.Key.alt_l in keys_pressed:
-            if not recorder.is_recording:
-                print(f"🔴 {YELLOW}Recording started...{RESET}", flush=True)
-                recorder.start_recording()
+        if key in (keyboard.Key.ctrl_l, keyboard.Key.alt_l):
+            # A hotkey modifier went down: arm the trigger only when this
+            # hold is exactly the two hotkey keys and nothing else.
+            if not recorder.is_recording and _pending_trigger is None \
+                    and _is_hotkey_only():
+                _arm_trigger()
+        elif _pending_trigger is not None:
+            # A non-modifier key joined the hold inside the grace window:
+            # it is a bigger combo, stand down. (If a take is already
+            # running, this key's release ends it as before.)
+            _cancel_trigger()
     except AttributeError:
         pass
 
@@ -281,6 +334,9 @@ def on_press(key):
 def on_release(key):
     try:
         keys_pressed.discard(key)
+        # Any key leaving the hold cancels a pending trigger: the moment
+        # the hold is no longer the two hotkey keys, it is not the hotkey.
+        _cancel_trigger()
         if recorder.is_recording:
             recorder.finish_recording("release")
     except AttributeError:
@@ -362,7 +418,8 @@ def transcribe_and_output(audio_data):
 
 
 def listen_for_hotkey():
-    print_block("👂 Listening for Ctrl+Option (left modifiers only)...\n"
+    print_block("👂 Listening for Ctrl+Option (left modifiers only — exactly "
+                "those two keys; bigger chords won't trigger)...\n"
                 "(press and hold to record, release to stop — max 60s)", LISTENING)
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
