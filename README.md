@@ -35,7 +35,7 @@ On first run the model downloads from Hugging Face (`base` ≈ 145 MB) and cache
 
 Then in any text field:
 
-1. Hold **Ctrl + Option** — the **left** modifiers only; right Ctrl/Option are ignored
+1. Hold **Ctrl + Option** — the **left** modifiers only, and **exactly those two keys**: wispx triggers on a pure two-key hold, so a 3- or 4-key chord that contains them (right Ctrl/Option, or any other key) does not trigger
 2. Speak
 3. Release — or keep holding: a progress bar fills in place and at the
    **60 s** cap the take is finalized automatically → transcribes (~1–2 s)
@@ -139,6 +139,7 @@ Each hit prints a note (`🪄 alias: Alice → ls`) and the *replaced* text is w
 
 ## 🧠 Under the hood
 
+- **Hotkey** — exactly left Ctrl + left Option. The trigger is deferred by ~0.2 s (`TRIGGER_GRACE` at the top of `wispx.py`) because at the instant the second modifier goes down it is not yet knowable whether a third key is on its way: if any other key is down (or lands) inside that window, the hold is a bigger chord and wispx stands down; releasing any key cancels a pending trigger. A deliberate two-key hold has no third key, so it fires ~0.2 s after the hold begins (imperceptible for push-to-talk)
 - **Recording** — PyAudio at 16 kHz (Core Audio resamples from the device's native rate, e.g. 96 kHz, transparently); each take is capped at 60 s with an in-place progress bar, and the cap finalizes the take exactly like a release; a very brief tap that captures no audio (the mic takes a few hundred ms to open) and a near-silent take (rms < 0.003) are skipped with a note instead of transcribed
 - **Transcription** — faster-whisper, greedy decoding (`beam_size=1`) + VAD filter to trim leading/trailing silence; an `initial_prompt` seeded from the first 20 `terms.txt` words biases the decoder toward tech vocabulary — **skipped on takes under 1.0 s**, where a prompt tends to blank or echo the list — then a word-boundary alias pass from `aliases.txt` rewrites known misses; the trailing period Whisper appends even to incomplete sentences is stripped before paste
 - **Output** — clipboard + simulated ⌘V, ~0.2 s after copy so the target app has focus
